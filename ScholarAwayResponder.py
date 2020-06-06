@@ -5,18 +5,34 @@ from datetime import datetime
 from enum import Enum
 
 class AdminCommands(Enum):
-    ENABLE_DEBUG_MODE = '/sar enabledebugmode'
-    DISABLE_DEBUG_MODE = '/sar disabledebugmode'
     LIST_USERS = '/sar list'
+    @staticmethod
+    def toString():
+        commandHelp = "Admin Commands:\n"
+        commandHelp += "{} - lists all users and their information.\n".format(AdminCommands.LIST_USERS.value)
+        return commandHelp
+
 
 class UserCommands(Enum):
     SET = '/sar set'
     USER_STATUS = '/sar status'
     REMOVE_USER = '/sar reset'
+    @staticmethod
+    def toString():
+        commandHelp = "User Commands:\n"
+        commandHelp += "{} - starts setting user away response information\n".format(UserCommands.SET.value)
+        commandHelp += "{} - returns your away status information\n".format(UserCommands.USER_STATUS.value)
+        commandHelp += "{} - removes your information\n".format(UserCommands.REMOVE_USER.value)
+        return commandHelp
+
+class UserType(Enum):
+    NORMAL_USER = 0
+    ADMIN_USER = 1
 
 class UserAutoResponse:
     nametag: str
     discriminator: str
+    userType: UserType
     customReason = ''
     sleepStartHour: int
     sleepEndHour: int
@@ -27,6 +43,11 @@ class UserAutoResponse:
     def __init__(self, nametag, discriminator):
         self.nametag = nametag
         self.discriminator = discriminator
+
+        if nametag == '@Scholar' and discriminator == '1148':
+            self.userType = UserType.ADMIN_USER
+        else:
+            self.userType = UserType.NORMAL_USER
         return
     
     def getName(self):
@@ -72,7 +93,6 @@ class Utilities:
         return token
 
 class ChannelManager:
-    debugMode = False
     userAutoResponses = []
     scholarAutoResponse = UserAutoResponse('@Scholar', '1148')
     scholarAutoResponse.sleepStartHour = 11
@@ -87,27 +107,13 @@ class ChannelManager:
             if userAutoResponse.getName() in author.display_name and userAutoResponse.discriminator == author.discriminator:
                 return userAutoResponse
 
-    async def sendMessageIfDebugMode(self, message: str, channel: discord.TextChannel):
-        if self.debugMode:
-            await channel.send(message)
-            print ('Sent message: {} to channel: {}.'.format(message, channel))
-        return
-
     async def handleAdminCommandsIfFound(self, message: discord.Message):
         content = message.content.lower()
-        if message.author.display_name != 'Scholar':
-            return
-        if message.author.discriminator != '1148':
-            return
-        if content.startswith(AdminCommands.ENABLE_DEBUG_MODE.value):
-            self.debugMode = True
-            await message.channel.send('Debug mode enabled')
-            return True
-        if content.startswith(AdminCommands.DISABLE_DEBUG_MODE.value):
-            self.debugMode = False
-            await message.channel.send('Debug mode disabled')
-            return True
         if content.startswith(AdminCommands.LIST_USERS.value):
+            user = self.findSingleUserByAuthor(message.author)
+            if not user or user.userType != UserType.ADMIN_USER:
+                await message.channel.send('Nice try {}.'.format(message.author.display_name))
+                return True
             for userAutoResponse in self.userAutoResponses:
                 await message.channel.send('User information: \n{}'.format(userAutoResponse.toString()))
             return True
@@ -131,6 +137,15 @@ class ChannelManager:
             return True
         return
 
+    async def outputCommands(self, message: discord.Message):
+        user = self.findSingleUserByAuthor(message.author)
+        commandMessageOutput = 'Commands available:\n'
+        if user.userType == UserType.ADMIN_USER:
+            commandMessageOutput += AdminCommands.toString()
+
+        commandMessageOutput += UserCommands.toString()
+        await message.channel.send(commandMessageOutput)
+
     async def handleUsersBeingTagged(self, message: discord.Message):
         for userAutoResponse in self.userAutoResponses:
             if userAutoResponse.nametag in message.clean_content:
@@ -142,16 +157,14 @@ class ChannelManager:
                     await message.channel.send(responseMessage)
 
     async def handleMessage(self, message: discord.Message):
-        await self.sendMessageIfDebugMode('HandleMessage fired.', message.channel)
-
         if await self.handleAdminCommandsIfFound(message):
             None
         elif await self.handleUserCommands(message):
             None
+        elif message.content.startswith('/sar'):
+            await self.outputCommands(message)            
         elif await self.handleUsersBeingTagged(message):
             None
-
-        await self.sendMessageIfDebugMode('HandleMessage completed.', message.channel)
 
 
 
