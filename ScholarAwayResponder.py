@@ -9,6 +9,12 @@ ENABLE_DEBUG_MODE = "/sar enabledebugmode"
 DISABLE_DEBUG_MODE = "/sar disabledebugmode"
 #end of globals
 
+def getToken():
+    file = open('bottoken.txt', 'r')
+    token = file.readline()
+    file.close()
+    return token
+
 def isCurrentDayAWeekday():
     now = datetime.now()
     if now.weekday() >= 0 and now.weekday() < 5:
@@ -107,4 +113,4 @@ async def on_message(message):
 
     await handleMessage(message)
 
-client.run('NzE4ODI3MTc5Mzk5NzA4Njgz.XtuiFw.-UbVpEuS9WjVGby4qpOJTz0PLWE')
+client.run(getToken())
