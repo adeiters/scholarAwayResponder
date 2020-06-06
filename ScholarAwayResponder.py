@@ -2,105 +2,153 @@ import discord
 
 #globals
 from datetime import datetime
-debugMode = False
-client = discord.Client()
-customReason = ""
-ENABLE_DEBUG_MODE = "/sar enabledebugmode"
-DISABLE_DEBUG_MODE = "/sar disabledebugmode"
-#end of globals
+from enum import Enum
 
-def getToken():
-    file = open('bottoken.txt', 'r')
-    token = file.readline()
-    file.close()
-    return token
+class AdminCommands(Enum):
+    ENABLE_DEBUG_MODE = '/sar enabledebugmode'
+    DISABLE_DEBUG_MODE = '/sar disabledebugmode'
+    LIST_USERS = '/sar list'
 
-def isCurrentDayAWeekday():
-    now = datetime.now()
-    if now.weekday() >= 0 and now.weekday() < 5:
-        return True
-    return False
+class UserCommands(Enum):
+    SET_WORKDAYS_AND_HOURS = '/sar initialize'
+    USER_STATUS = '/sar status'
+    REMOVE_USER = '/sar remove'
 
-def isTimeDuringWorkHours():
-    now = datetime.now()
-    if now.hour > 8 and now.hour < 17:
-        return True
-    return False
+class UserAutoResponse:
+    nametag: str
+    customReason = ''
+    sleepStartHour: int
+    sleepEndHour: int
+    workDays: [0,1,2,3,4]
+    workStartHour: int
+    workEndHour: int
 
-def isTimeDuringSleepingHours():
-    now = datetime.now()
-    if now.hour <= 8 or now.hour > 20:
-        return True
-    return False
+    def __init__(self, nametag):
+        self.nametag = nametag
+        return
+    
+    def getName(self):
+        return self.nametag.replace('@', '')
 
-def getAwayReason(channel: discord.channel):
-    if customReason:
-        return customReason
-    if isCurrentDayAWeekday() and isTimeDuringWorkHours():
-        return 'Working'
-    if isTimeDuringSleepingHours():
-        return 'Sleeping'
-    return ''
+    def isCurrentDayAWeekday(self):
+        now = datetime.now()
+        return now.weekday() in self.workDays
 
-async def sendMessageIfDebugMode(message: str, channel: discord.TextChannel):
-    if debugMode:
-        await channel.send(message)
-        print ('Sent message: {} to channel: {}.'.format(message, channel))
-    return
+    def isTimeDuringWorkHours(self):
+        now = datetime.now()
+        return now.hour >= self.workStartHour and now.hour <= self.workEndHour
 
-async def handleDebugModeCommandIfFound(message: discord.Message):
-    global debugMode
-    content = message.content.lower()
-    if content.startswith(ENABLE_DEBUG_MODE):
-        debugMode = True
-        await sendMessageIfDebugMode('Debug mode enabled', message.channel)
-    if content.startswith(DISABLE_DEBUG_MODE):
-        debugMode = False
-        await sendMessageIfDebugMode('Debug mode disabled', message.channel)
-    return
+    def isTimeDuringSleepingHours(self):
+        now = datetime.now()
+        return now.hour <= self.sleepEndHour or now.hour >= self.sleepStartHour
+
+    def getAwayReason(self):
+        if self.customReason:
+            return self.customReason
+        if self.isCurrentDayAWeekday() and self.isTimeDuringWorkHours():
+            return 'Working'
+        if self.isTimeDuringSleepingHours():
+            return 'Sleeping'
+        return ''
+
+    def toString(self):
+        output = 'Name: {}\n'.format(self.getName())
+        output += 'Custom away reason: {}\n'.format(self.customReason)
+        output += 'Work hours: {} to {}\n'.format(self.workStartHour, self.workEndHour)
+        output += 'Sleep hours: {} to {}'.format(self.sleepEndHour, self.sleepStartHour)
+        return output
+
+class Utilities:
+    @staticmethod
+    def getToken():
+        file = open('bottoken.txt', 'r')
+        token = file.readline()
+        file.close()
+        return token
+
+class ChannelManager:
+    debugMode = False
+    userAutoResponses = []
+    scholarAutoResponse = UserAutoResponse('@Scholar')
+    scholarAutoResponse.sleepStartHour = 11
+    scholarAutoResponse.sleepEndHour = 8
+    scholarAutoResponse.workDays = [0,1,2,3,4]
+    scholarAutoResponse.workStartHour = 8
+    scholarAutoResponse.workEndHour = 17
+    userAutoResponses.append(scholarAutoResponse)
+
+    def findSingleUserByDisplayName(self, message: discord.Message):
+        for userAutoResponse in self.userAutoResponses:
+            if userAutoResponse.getName() in message.clean_content:
+                return userAutoResponse
+
+    async def sendMessageIfDebugMode(self, message: str, channel: discord.TextChannel):
+        if self.debugMode:
+            await channel.send(message)
+            print ('Sent message: {} to channel: {}.'.format(message, channel))
+        return
+
+    async def handleAdminCommandsIfFound(self, message: discord.Message):
+        content = message.content.lower()
+        if message.author.display_name != 'Scholar':
+            return
+        if message.author.discriminator != '1148':
+            return
+        if content.startswith(AdminCommands.ENABLE_DEBUG_MODE.value):
+            self.debugMode = True
+            await message.channel.send('Debug mode enabled')
+            return True
+        if content.startswith(AdminCommands.DISABLE_DEBUG_MODE.value):
+            self.debugMode = False
+            await message.channel.send('Debug mode disabled')
+            return True
+        if content.startswith(AdminCommands.LIST_USERS.value):
+            for userAutoResponse in self.userAutoResponses:
+                await message.channel.send('User status: \n{}'.format(userAutoResponse.toString()))
+            return True
+        return
+
+    async def handleUserCommands(self, message: discord.Message):
+        content = message.content.lower()
+        if content.startswith(UserCommands.USER_STATUS.value):
+            user = self.findSingleUserByDisplayName(message.author.display_name)
+            if user:
+                await self.sendMessageIfDebugMode('User status: \n{}'.format(user.toString()), message.channel)
+                return True
+        return
+
+    async def handleUsersBeingTagged(self, message: discord.Message):
+        for userAutoResponse in self.userAutoResponses:
+            if userAutoResponse.nametag in message.clean_content:
+                reason = userAutoResponse.getAwayReason()
+                if reason:                    
+                    responseMessage = 'Hi {} :slight_smile:.\n'.format(message.author.display_name)
+                    responseMessage += '{} is currently unavailable.\n'.format(userAutoResponse.getName())
+                    responseMessage += 'Reason: {}.'.format(reason)
+                    await message.channel.send(responseMessage)
+
+    async def handleMessage(self, message: discord.Message):
+        await self.sendMessageIfDebugMode('HandleMessage fired.', message.channel)
+
+        if await self.handleAdminCommandsIfFound(message):
+            None
+        elif await self.handleUserCommands(message):
+            None
+        elif await self.handleUsersBeingTagged(message):
+            None
+
+        await self.sendMessageIfDebugMode('HandleMessage completed.', message.channel)
 
 
-async def handleKillCommandIfFound(message: discord.Message):
-    global debugMode
-    content = message.content.lower()
-    if content.startswith('/sar shutup'):
-        await sendMessageIfDebugMode("Ok ok.  Shutting down.", message.channel)
-        exit()
-    return
 
 
-async def handleCustomReasonCommandIfFound(message: discord.Message):
-    global customReason
-    content = message.content.lower()
-    customReasonCommand = '/sar customreason='
-    if content.startswith(customReasonCommand):
-        customReason = content.replace(customReasonCommand, '')
-        await sendMessageIfDebugMode('Custom reason set to: {}.'.format(customReason), message.channel)
-    return
-
-async def handleCommands(message: discord.Message):
-    await handleKillCommandIfFound(message)
-    await handleDebugModeCommandIfFound(message)
-    await handleCustomReasonCommandIfFound(message)
-    return
-
-
-async def handleMessage(message: discord.Message):
-    await sendMessageIfDebugMode('HandleMessage fired.', message.channel)
-    await handleCommands(message)
-
-    if '@Scholar' in message.clean_content:
-        reason = getAwayReason(message.channel)
-        if reason:
-            responseMessage = 'Hi ' + message.author.display_name + " :slight_smile:.\n"
-            responseMessage += 'Scholar is currently unavailable.\n'
-            responseMessage += 'Reason: ' + reason + '.'
-            await message.channel.send(responseMessage)
-
-    await sendMessageIfDebugMode('HandleMessage completed.', message.channel)
-    return
 
 print('Booting up')
+
+client = discord.Client()
+channelManager = ChannelManager()
+
+
 
 @client.event
 async def on_ready():
@@ -110,7 +158,6 @@ async def on_ready():
 async def on_message(message):
     if message.author == client.user:
         return
+    await channelManager.handleMessage(message)
 
-    await handleMessage(message)
-
-client.run(getToken())
+client.run(Utilities.getToken())
