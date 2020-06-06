@@ -10,12 +10,13 @@ class AdminCommands(Enum):
     LIST_USERS = '/sar list'
 
 class UserCommands(Enum):
-    SET_WORKDAYS_AND_HOURS = '/sar initialize'
+    SET = '/sar set'
     USER_STATUS = '/sar status'
-    REMOVE_USER = '/sar remove'
+    REMOVE_USER = '/sar reset'
 
 class UserAutoResponse:
     nametag: str
+    discriminator: str
     customReason = ''
     sleepStartHour: int
     sleepEndHour: int
@@ -23,8 +24,9 @@ class UserAutoResponse:
     workStartHour: int
     workEndHour: int
 
-    def __init__(self, nametag):
+    def __init__(self, nametag, discriminator):
         self.nametag = nametag
+        self.discriminator = discriminator
         return
     
     def getName(self):
@@ -50,10 +52,13 @@ class UserAutoResponse:
         if self.isTimeDuringSleepingHours():
             return 'Sleeping'
         return ''
+    
+    def setCustomAwayReason(self, reason):
+        self.customReason = reason
 
     def toString(self):
         output = 'Name: {}\n'.format(self.getName())
-        output += 'Custom away reason: {}\n'.format(self.customReason)
+        output += 'Custom away reason: {}\n'.format(self.customReason if self.customReason else 'None')
         output += 'Work hours: {} to {}\n'.format(self.workStartHour, self.workEndHour)
         output += 'Sleep hours: {} to {}'.format(self.sleepEndHour, self.sleepStartHour)
         return output
@@ -69,7 +74,7 @@ class Utilities:
 class ChannelManager:
     debugMode = False
     userAutoResponses = []
-    scholarAutoResponse = UserAutoResponse('@Scholar')
+    scholarAutoResponse = UserAutoResponse('@Scholar', '1148')
     scholarAutoResponse.sleepStartHour = 11
     scholarAutoResponse.sleepEndHour = 8
     scholarAutoResponse.workDays = [0,1,2,3,4]
@@ -77,9 +82,9 @@ class ChannelManager:
     scholarAutoResponse.workEndHour = 17
     userAutoResponses.append(scholarAutoResponse)
 
-    def findSingleUserByDisplayName(self, message: discord.Message):
+    def findSingleUserByAuthor(self, author):
         for userAutoResponse in self.userAutoResponses:
-            if userAutoResponse.getName() in message.clean_content:
+            if userAutoResponse.getName() in author.display_name and userAutoResponse.discriminator == author.discriminator:
                 return userAutoResponse
 
     async def sendMessageIfDebugMode(self, message: str, channel: discord.TextChannel):
@@ -104,17 +109,26 @@ class ChannelManager:
             return True
         if content.startswith(AdminCommands.LIST_USERS.value):
             for userAutoResponse in self.userAutoResponses:
-                await message.channel.send('User status: \n{}'.format(userAutoResponse.toString()))
+                await message.channel.send('User information: \n{}'.format(userAutoResponse.toString()))
             return True
         return
 
     async def handleUserCommands(self, message: discord.Message):
         content = message.content.lower()
         if content.startswith(UserCommands.USER_STATUS.value):
-            user = self.findSingleUserByDisplayName(message.author.display_name)
+            user = self.findSingleUserByAuthor(message.author)
             if user:
-                await self.sendMessageIfDebugMode('User status: \n{}'.format(user.toString()), message.channel)
+                await message.channel.send('User status: \n{}'.format(user.toString()))
                 return True
+            await message.channel.send('User not found: \n{}'.format(message.author.display_name))
+        if content.startswith(UserCommands.REMOVE_USER.value):
+            user = self.findSingleUserByAuthor(message.author)
+            if user:
+                self.userAutoResponses.remove(user)
+                await message.channel.send('User removed: \n{}'.format(user.getName()))
+                return True
+            await message.channel.send('User not found: \n{}'.format(message.author.display_name))  
+            return True
         return
 
     async def handleUsersBeingTagged(self, message: discord.Message):
