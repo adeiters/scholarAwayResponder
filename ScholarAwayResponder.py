@@ -53,17 +53,19 @@ class UserType(Enum):
 class UserAutoResponse:
     name: str
     discriminator: str
-    userType: UserType
-    customReason = ''
-    sleepStartHour: int
-    sleepEndHour: int
+    customReason: str
     workDays: [0,1,2,3,4]
-    workStartHour: int
-    workEndHour: int
+    workHours: tuple
+    sleepHours: tuple
+    userType: UserType
 
     def __init__(self, name, discriminator):
         self.name = name
         self.discriminator = discriminator
+        self.customReason = ''
+        self.workDays = []
+        self.workHours = tuple()
+        self.sleepHours = tuple()
 
         if name == 'Scholar' and discriminator == '1148':
             self.userType = UserType.ADMIN_USER
@@ -79,12 +81,16 @@ class UserAutoResponse:
         return now.weekday() in self.workDays
 
     def isTimeDuringWorkHours(self):
+        if not len(self.workHours):
+            return False
         now = datetime.now()
-        return now.hour >= self.workStartHour and now.hour <= self.workEndHour
+        return now.hour >= self.workHours[0] and now.hour <= self.workHours[1]
 
     def isTimeDuringSleepingHours(self):
+        if not len(self.sleepHours):
+            return False
         now = datetime.now()
-        return now.hour <= self.sleepEndHour or now.hour >= self.sleepStartHour
+        return now.hour <= self.sleepHours[0] or now.hour >= self.sleepHours[1]
 
     def getAwayReason(self):
         if self.customReason:
@@ -101,8 +107,16 @@ class UserAutoResponse:
     def toString(self):
         output = 'Name: **{}**\n'.format(self.name)
         output += 'Custom away reason: *{}*\n'.format(self.customReason if self.customReason else 'None')
-        output += 'Work hours: **{}** to **{}**\n'.format(self.workStartHour, self.workEndHour)
-        output += 'Sleep hours: **{}** to **{}**'.format(self.sleepEndHour, self.sleepStartHour)
+        output += 'Work days: **{}**\n'.format(self.workDays if len(self.workDays) else 'None')
+        if not len(self.workHours):
+            output += 'Work hours: **Not Set**\n'
+        else:
+            output += 'Work hours: **{}** to **{}**\n'.format(self.workHours[0], self.workHours[1])
+        
+        if not len(self.sleepHours):
+            output += 'Sleep hours: **Not Set**\n'
+        else:
+            output += 'Sleep hours: **{}** to **{}**\n'.format(self.sleepHours[0], self.sleepHours[1])
         return output
 
 class Utilities:
@@ -119,15 +133,38 @@ class Utilities:
             return True
         except ValueError:
             return False
+    @staticmethod
+    def getListOfIntsFromCsv(string: str):
+        stringSplit = string.split(',')
+        listOfInts = []
+        for string in stringSplit:
+            string = string.replace(' ', '')
+            if Utilities.isAnInt(string):
+                listOfInts.append(int(string))
+        return listOfInts
+    @staticmethod
+    def getValidWeekDaysFromCsv(string: str):
+        listOfInts = Utilities.getListOfIntsFromCsv(string)
+        listOfDays = []
+        for i in listOfInts:
+            if i >= 0 and i <=6:
+                listOfDays.append(i)
+        return listOfDays
+    @staticmethod
+    def getValidHoursFromCsv(string: str):
+        listOfInts = Utilities.getListOfIntsFromCsv(string)
+        listOfHours = []
+        for i in listOfInts:
+            if i >= 0 and i < 24:
+                listOfHours.append(i)
+        return listOfHours
 
 class ChannelManager:
     userAutoResponses = []
     scholarAutoResponse = UserAutoResponse('Scholar', '1148')
-    scholarAutoResponse.sleepStartHour = 11
-    scholarAutoResponse.sleepEndHour = 8
     scholarAutoResponse.workDays = [0,1,2,3,4]
-    scholarAutoResponse.workStartHour = 8
-    scholarAutoResponse.workEndHour = 17
+    scholarAutoResponse.workHours = (8,17)
+    scholarAutoResponse.sleepHours = (11,8)
     userAutoResponses.append(scholarAutoResponse)
 
     def findSingleUserByAuthor(self, author):
@@ -194,12 +231,20 @@ class ChannelManager:
                 else:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
             if SetCommands.WORK_DAYS == setCommandAndValue[0]:
-                workDays = self.getWorkDaysFromCommandValue(setCommandAndValue[1])
+                workDays = Utilities.getValidWeekDaysFromCsv(setCommandAndValue[1])
                 user.workDays = workDays
                 if user.workDays.count:
                     commandsExecuted += "Set `{}` to **{}**.\n".format(setCommandAndValue[0].value, user.workDays)
                 else:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
+            if SetCommands.WORK_HOURS == setCommandAndValue[0]:
+                workHours = self.getWorkHoursFromCommandValue(setCommandAndValue[1])
+                if not len(workHours):
+                    user.workHours = tuple()
+                    commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
+                else:
+                    user.workHours = workHours
+                    commandsExecuted += "Set `{}` to **{}-{}**.\n".format(setCommandAndValue[0].value, user.workHours[0], user.workHours[1])
         await message.channel.send("Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted))
 
     def getSetCommandArgument(self, commandString: str):
@@ -215,17 +260,23 @@ class ChannelManager:
         commandValue = commandString.replace(setCommand.value.replace('-','') , '').replace(' ', '')
         return (setCommand, commandValue)
 
-    def getWorkDaysFromCommandValue(self, commandValue: str):
-        daysSplit = commandValue.replace(',','')
-        listOfDays = []
-        for day in daysSplit:
-            day = day.replace(' ', '')
-            if Utilities.isAnInt(day):
-                dayInt = int(day)
-                if dayInt >= 0 and dayInt <=6:
-                    listOfDays.append(dayInt)
-        return listOfDays
+    def getWorkHoursFromCommandValue(self, commandValue: str):
+        listOfHours = Utilities.getValidHoursFromCsv(commandValue)
+        if len(listOfHours) != 2:
+            return []
+        if listOfHours[0] >= listOfHours[1]:
+            return []
+        return listOfHours
 
+    def getSleepHoursFromCommandValue(self, commandValue: str):
+        listOfHours = Utilities.getValidHoursFromCsv(commandValue)
+        if len(listOfHours) != 2:
+            return []
+        if listOfHours[0] <= listOfHours[1]:
+            return []
+        return listOfHours
+
+    
 
 
 
