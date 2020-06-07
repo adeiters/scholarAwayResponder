@@ -99,10 +99,10 @@ class UserAutoResponse:
         self.customReason = reason
 
     def toString(self):
-        output = 'Name: {}\n'.format(self.name)
-        output += 'Custom away reason: {}\n'.format(self.customReason if self.customReason else 'None')
-        output += 'Work hours: {} to {}\n'.format(self.workStartHour, self.workEndHour)
-        output += 'Sleep hours: {} to {}'.format(self.sleepEndHour, self.sleepStartHour)
+        output = 'Name: **{}**\n'.format(self.name)
+        output += 'Custom away reason: *{}*\n'.format(self.customReason if self.customReason else 'None')
+        output += 'Work hours: **{}** to **{}**\n'.format(self.workStartHour, self.workEndHour)
+        output += 'Sleep hours: **{}** to **{}**'.format(self.sleepEndHour, self.sleepStartHour)
         return output
 
 class Utilities:
@@ -112,6 +112,13 @@ class Utilities:
         token = file.readline()
         file.close()
         return token
+    @staticmethod
+    def isAnInt(string: str):
+        try: 
+            int(string)
+            return True
+        except ValueError:
+            return False
 
 class ChannelManager:
     userAutoResponses = []
@@ -135,9 +142,9 @@ class ChannelManager:
             if not user or user.userType != UserType.ADMIN_USER:
                 await message.channel.send('Nice try {}.'.format(message.author.display_name))
                 return True
-            await message.channel.send('There are {} users configured.'.format(self.userAutoResponses.count))
+            await message.channel.send('There are **{}** users configured.'.format(len(self.userAutoResponses)))
             for userAutoResponse in self.userAutoResponses:
-                await message.channel.send('User information: \n{}'.format(userAutoResponse.toString()))
+                await message.channel.send('__User information__: \n{}'.format(userAutoResponse.toString()))
             return True
         return
 
@@ -170,11 +177,29 @@ class ChannelManager:
             self.userAutoResponses.append(user)
         commandWithSetRemovedAndLowered = message.content.replace(UserCommands.SET.value, '').lower()
         commandsSplit = commandWithSetRemovedAndLowered.split('-')
+        setCommandsAndValues = []
         for command in commandsSplit:
             setCommandAndValue = self.getSetCommandArgument(command)
+            if len(setCommandAndValue):
+                setCommandsAndValues.append(setCommandAndValue)
+        if not len(setCommandsAndValues):
+            commandsReminder = "I found no valid arguments for your `set` command.  Here's a reminder of the syntax.\n"
+            commandsReminder += SetCommands.toString()
+            await message.channel.send(commandsReminder)
+        for setCommandAndValue in setCommandsAndValues:
             if SetCommands.CUSTOM_REASON == setCommandAndValue[0]:
                 user.customReason = setCommandAndValue[1]
-                commandsExecuted += "Set `{}` to **{}**.\n".format(setCommandAndValue[0].value, setCommandAndValue[1])
+                if user.customReason:
+                    commandsExecuted += "Set `{}` to **{}**.\n".format(setCommandAndValue[0].value, user.customReason)
+                else:
+                    commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
+            if SetCommands.WORK_DAYS == setCommandAndValue[0]:
+                workDays = self.getWorkDaysFromCommandValue(setCommandAndValue[1])
+                user.workDays = workDays
+                if user.workDays.count:
+                    commandsExecuted += "Set `{}` to **{}**.\n".format(setCommandAndValue[0].value, user.workDays)
+                else:
+                    commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
         await message.channel.send("Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted))
 
     def getSetCommandArgument(self, commandString: str):
@@ -186,9 +211,20 @@ class ChannelManager:
                 setCommand = sC
                 setCommandFound = True
         if not setCommandFound:
-            return (None, None)
+            return tuple()
         commandValue = commandString.replace(setCommand.value.replace('-','') , '').replace(' ', '')
         return (setCommand, commandValue)
+
+    def getWorkDaysFromCommandValue(self, commandValue: str):
+        daysSplit = commandValue.replace(',','')
+        listOfDays = []
+        for day in daysSplit:
+            day = day.replace(' ', '')
+            if Utilities.isAnInt(day):
+                dayInt = int(day)
+                if dayInt >= 0 and dayInt <=6:
+                    listOfDays.append(dayInt)
+        return listOfDays
 
 
 
