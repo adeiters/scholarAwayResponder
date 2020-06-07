@@ -105,9 +105,9 @@ class UserAutoResponse:
         if self.customReason:
             return self.customReason
         if self.isCurrentDayAWeekday() and self.isTimeDuringWorkHours():
-            return 'Working'
+            return '**Working**.  Work hours: {}'.format(Utilities.getHourTupleToDisplayStringInUTCAndCT(self.workHours))
         if self.isTimeDuringSleepingHours():
-            return 'Sleeping'
+            return '**Sleeping**.  Sleep hours: {}'.format(Utilities.getHourTupleToDisplayStringInUTCAndCT(self.sleepHours))
         return ''
     
     def setCustomAwayReason(self, reason):
@@ -115,7 +115,7 @@ class UserAutoResponse:
 
     def toString(self):
         output = 'Name: **{}**\n'.format(self.name)
-        output += 'Custom away reason: *{}*\n'.format(self.customReason if self.customReason else 'None')
+        output += 'Custom away reason: **{}**\n'.format(self.customReason if self.customReason else 'None')
         output += 'Work days: **{}**\n'.format(self.workDays if len(self.workDays) else 'None')
         if not len(self.workHours):
             output += 'Work hours: **Not Set**\n'
@@ -172,13 +172,15 @@ class Utilities:
         #3am UTC becomes 10PM (22) CT - 3, 2, 1, 0, 23, 22
         if hour - utcToCTOffset < 0:
             remainder = hour - utcToCTOffset
-            return 24 - remainder
+            return 24 - abs(remainder)
         return hour - utcToCTOffset
     @staticmethod
     def convertMilitaryToStandard(hour: int) -> str: 
         if hour > 12:
             hour = hour - 12
             return str(hour) + " p.m."
+        if hour == 0:
+            return "Midnight"
         return str(hour) + " a.m."
     @staticmethod
     def getHourTupleToDisplayStringInUTCAndCT(hours: tuple) -> str:
@@ -239,6 +241,7 @@ class ChannelManager:
         return
 
     async def handleSetCommand(self, message: discord.Message):
+        hoursRemovedHelp = "Perhaps this was on accident? Double check your syntax.  2 ints - 0-23.  Sorry, hours can't end at midnight."
         user = self.findSingleUserByAuthor(message.author)
         commandsExecuted = ''
         if not user:
@@ -274,7 +277,7 @@ class ChannelManager:
                 workHours = self.getBeforeAndAfterHoursFromCommandValue(setCommandAndValue[1])
                 if not len(workHours):
                     user.workHours = tuple()
-                    commandsExecuted += "Removed `{}`.Perhaps this was on accident? Double check your syntax.  2 ints - 0-23.\n".format(setCommandAndValue[0].value)
+                    commandsExecuted += "Removed `{}`. {}\n".format(setCommandAndValue[0].value, hoursRemovedHelp)
                 else:
                     user.workHours = workHours
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
@@ -282,13 +285,13 @@ class ChannelManager:
                 sleepHours = self.getBeforeAndAfterHoursFromCommandValue(setCommandAndValue[1])
                 if not len(sleepHours):
                     user.sleepHours = tuple()
-                    commandsExecuted += "Removed `{}`. Perhaps this was on accident? Double check your syntax.  2 ints - 0-23.\n".format(setCommandAndValue[0].value)
+                    commandsExecuted += "Removed `{}`. {}\n".format(setCommandAndValue[0].value, hoursRemovedHelp)
                 else:
                     user.sleepHours = sleepHours
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
-            commandsExecuted += "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
-            commandsExecuted += 'User status: \n{}'.format(user.toString())
-        await message.channel.send()
+            commandsExecutedOutput = "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
+            commandsExecutedOutput += 'User status: \n{}'.format(user.toString())
+        await message.channel.send(commandsExecutedOutput)
 
     def getSetCommandArgument(self, commandString: str):
         setCommandFound = False
@@ -330,7 +333,7 @@ class ChannelManager:
                 if userAutoResponse.isUserAway():
                     responseMessage = 'Hi {} :slight_smile:.\n'.format(message.author.display_name)
                     responseMessage += '{} is currently unavailable.\n'.format(userAutoResponse.name)
-                    responseMessage += 'Reason: **{}**.'.format(userAutoResponse.getAwayReason())
+                    responseMessage += 'Reason: {}'.format(userAutoResponse.getAwayReason())
                     await message.channel.send(responseMessage)
 
     async def handleMessage(self, message: discord.Message):
