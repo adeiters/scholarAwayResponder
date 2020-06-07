@@ -76,9 +76,8 @@ class UserAutoResponse:
     def getNameTag(self):
         return '@{}'.format(self.name)
 
-    def isCurrentDayAWeekday(self):
-        now = datetime.utcnow()
-        return now.weekday() in self.workDays
+    def isCurrentDayAWorkday(self):
+        return datetime.utcnow().weekday() in self.workDays
 
     def isTimeDuringWorkHours(self):
         if not len(self.workHours):
@@ -88,7 +87,7 @@ class UserAutoResponse:
     def isTimeDuringSleepingHours(self):
         if not len(self.sleepHours):
             return False
-        return self.isCurrentTimeWithinRange(self.workHours)
+        return self.isCurrentTimeWithinRange(self.sleepHours)
 
     def isCurrentTimeWithinRange(self, hours):
         now = datetime.utcnow()
@@ -110,7 +109,7 @@ class UserAutoResponse:
     def getAwayReason(self):
         if self.customReason:
             return self.customReason
-        if self.isCurrentDayAWeekday() and self.isTimeDuringWorkHours():
+        if self.isCurrentDayAWorkday() and self.isTimeDuringWorkHours():
             return '**Working**.  Work hours: {}'.format(Utilities.getHourTupleToDisplayStringInUTCAndCT(self.workHours))
         if self.isTimeDuringSleepingHours():
             return '**Sleeping**.  Sleep hours: {}'.format(Utilities.getHourTupleToDisplayStringInUTCAndCT(self.sleepHours))
@@ -121,9 +120,12 @@ class UserAutoResponse:
 
     def toString(self):
         output = 'Name: **{}**\n'.format(self.name)
-        output += 'Custom away reason: **{}**\n'.format(self.customReason if self.customReason else 'None')
-        weekdaysOutput = Utilities.getWeekDaysWithDaysOfTheWeek(self.workDays)
-        output += 'Work days: **{}**\n'.format(weekdaysOutput if len(weekdaysOutput) else 'None')
+        output += 'Custom away reason: **{}**\n'.format(self.customReason if self.customReason else 'Not Set')
+        if self.workDays:
+            weekdaysOutput = Utilities.getWeekDaysWithDaysOfTheWeek(self.workDays)
+            output += 'Work days: **{}**\n'.format(weekdaysOutput)
+        else:
+            output += 'Work days: **{}**\n'.format('Not Set')
         if not len(self.workHours):
             output += 'Work hours: **Not Set**\n'
         else:
@@ -187,7 +189,9 @@ class Utilities:
             hour = hour - 12
             return str(hour) + " p.m."
         if hour == 0:
-            return "Midnight"
+            return 'Midnight'
+        if hour == 12:
+            return 'Noon'
         return str(hour) + " a.m."
     @staticmethod
     def convertWeekdayFromIntToStringAbbreviation(weekday: int) -> str:
@@ -264,7 +268,7 @@ class ChannelManager:
             return True
         if content.startswith(UserCommands.USER_STATUS.value):
             if user:
-                await message.channel.send('User status: \n{}'.format(user.toString()))
+                await message.channel.send("Here's your status: \n{}".format(user.toString()))
                 return True
             await message.channel.send('User not found: \n{}'.format(message.author.display_name))
         if content.startswith(UserCommands.REMOVE_USER.value):
@@ -277,7 +281,7 @@ class ChannelManager:
         return
 
     async def handleSetCommand(self, message: discord.Message):
-        hoursRemovedHelp = "Perhaps this was on accident? Double check your syntax.  2 ints - 0-23.  Sorry, hours can't end at midnight."
+        hoursRemovedHelp = "Perhaps this was on accident? Double check your syntax.  2 ints - 0-23 (Military time). 0=Midnight."
         user = self.findSingleUserByAuthor(message.author)
         commandsExecuted = ''
         if not user:
@@ -294,7 +298,7 @@ class ChannelManager:
         if not len(setCommandsAndValues):
             commandsReminder = "I found no valid arguments for your `set` command.  Here's a reminder of the syntax.\n"
             commandsReminder += SetCommands.toString()
-            await message.channel.send(commandsReminder)
+            commandsExecuted += commandsReminder
         for setCommandAndValue in setCommandsAndValues:
             if SetCommands.CUSTOM_REASON == setCommandAndValue[0]:
                 user.customReason = setCommandAndValue[1]
@@ -305,7 +309,7 @@ class ChannelManager:
             if SetCommands.WORK_DAYS == setCommandAndValue[0]:
                 workDays = Utilities.getValidWeekDaysFromCsv(setCommandAndValue[1])
                 user.setWorkDays(workDays)
-                if user.workDays.count:
+                if user.workDays:
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
                 else:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
@@ -325,8 +329,8 @@ class ChannelManager:
                 else:
                     user.sleepHours = sleepHours
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
-            commandsExecutedOutput = "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
-            commandsExecutedOutput += 'User status: \n{}'.format(user.toString())
+        commandsExecutedOutput = "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
+        commandsExecutedOutput += "Here's your status: \n{}".format(user.toString())
         await message.channel.send(commandsExecutedOutput)
 
     def getSetCommandArgument(self, commandString: str):
