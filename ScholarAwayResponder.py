@@ -63,7 +63,7 @@ class UserAutoResponse:
         self.name = name
         self.discriminator = discriminator
         self.customReason = ''
-        self.workDays = []
+        self.setWorkDays([])
         self.workHours = tuple()
         self.sleepHours = tuple()
 
@@ -98,6 +98,12 @@ class UserAutoResponse:
         #10pm-5am - hour >=10 or hour < 5    
         return now.hour >= hours[0] or now.hour < hours[1]
 
+    def setWorkDays(self, workDays: list):
+        workDays.sort()
+        distinctDays = list(dict.fromkeys(workDays))
+        self.workDays = distinctDays
+
+
     def isUserAway(self):
         return self.getAwayReason()
 
@@ -116,7 +122,8 @@ class UserAutoResponse:
     def toString(self):
         output = 'Name: **{}**\n'.format(self.name)
         output += 'Custom away reason: **{}**\n'.format(self.customReason if self.customReason else 'None')
-        output += 'Work days: **{}**\n'.format(self.workDays if len(self.workDays) else 'None')
+        weekdaysOutput = Utilities.getWeekDaysWithDaysOfTheWeek(self.workDays)
+        output += 'Work days: **{}**\n'.format(weekdaysOutput if len(weekdaysOutput) else 'None')
         if not len(self.workHours):
             output += 'Work hours: **Not Set**\n'
         else:
@@ -183,21 +190,50 @@ class Utilities:
             return "Midnight"
         return str(hour) + " a.m."
     @staticmethod
+    def convertWeekdayFromIntToStringAbbreviation(weekday: int) -> str:
+        if weekday == 0:
+            return 'Mon'
+        if weekday == 1:
+            return 'Tues'
+        if weekday == 2:
+            return 'Wed'
+        if weekday == 3:
+            return 'Thurs'
+        if weekday == 4:
+            return 'Fri'
+        if weekday == 5:
+            return 'Sat'
+        if weekday == 6:
+            return 'Sun'
+        return 'Invalid Input'
+    @staticmethod
     def getHourTupleToDisplayStringInUTCAndCT(hours: tuple) -> str:
         fromHour = 0
         toHour = 1
-        utcMilitary = "{} to {}".format(hours[fromHour], hours[toHour])
+        utcMilitary = "**{} to {}**".format(hours[fromHour], hours[toHour])
         standardTimeUTC = "**{}** to **{}**".format(Utilities.convertMilitaryToStandard(hours[fromHour]),Utilities.convertMilitaryToStandard(hours[toHour]))
         miliaryTimeCT = "{} to {}".format(Utilities.convertUTCtoCT(hours[fromHour]), Utilities.convertUTCtoCT(hours[toHour]))
         standardTimeCT = "**{}** to **{}**".format(Utilities.convertMilitaryToStandard(Utilities.convertUTCtoCT(hours[fromHour])), Utilities.convertMilitaryToStandard(Utilities.convertUTCtoCT(hours[toHour])))
 
         return '{} ({}) UTC.\t\tIn Central Time: {} ({}).\n'.format(utcMilitary, standardTimeUTC, miliaryTimeCT, standardTimeCT)
+    @staticmethod
+    def getWeekDaysWithDaysOfTheWeek(weekdays: list) -> str:
+        weekDaysAbbreviated = []
+        for i in weekdays:
+            weekDaysAbbreviated.append(Utilities.convertWeekdayFromIntToStringAbbreviation(i))
+
+        weekDaysAbbreviatedOutput = ''
+        for i in weekDaysAbbreviated:
+            weekDaysAbbreviatedOutput += '{}/'.format(i)
+        weekDaysAbbreviatedOutput = weekDaysAbbreviatedOutput.rstrip('/')
+        output = "**{} ({})**".format(weekdays, weekDaysAbbreviatedOutput)
+        return output
 
 
 class ChannelManager:
     userAutoResponses = []
     scholarAutoResponse = UserAutoResponse('Scholar', '1148')
-    scholarAutoResponse.workDays = [0,1,2,3,4]
+    scholarAutoResponse.setWorkDays([0,1,2,3,4])
     scholarAutoResponse.workHours = (13,22)
     scholarAutoResponse.sleepHours = (3,13)
     userAutoResponses.append(scholarAutoResponse)
@@ -268,7 +304,7 @@ class ChannelManager:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
             if SetCommands.WORK_DAYS == setCommandAndValue[0]:
                 workDays = Utilities.getValidWeekDaysFromCsv(setCommandAndValue[1])
-                user.workDays = workDays
+                user.setWorkDays(workDays)
                 if user.workDays.count:
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
                 else:
