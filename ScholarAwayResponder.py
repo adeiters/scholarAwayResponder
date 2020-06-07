@@ -36,12 +36,12 @@ class SetCommands(Enum):
         commandHelp = "Set Arguments (you can chain these):\n"
         commandHelp += "**{}** - Sets a custom reason.  This bypasses work and sleep hours and simply tells people why you are away.\n".format(SetCommands.CUSTOM_REASON.value)
         commandHelp += "\t\tExample: `{} {} I'll be in the hospital`\n".format(UserCommands.SET.value, SetCommands.CUSTOM_REASON.value)
-        commandHelp += "**{}** - This sets the days you work.  Use comma separated numbers from 0-6 (0-Monday, 1-Tuesday, 2-Wednesday, 3-Thursday, 4-Friday, 5-Saturday, 6-Sunday)\n".format(SetCommands.WORK_DAYS.value)
+        commandHelp += "**{}** - This sets the days you work.  Use comma separated numbers from 0-6 (0-Monday, 1-Tuesday, 2-Wednesday, 3-Thursday, 4-Friday, 5-Saturday, 6-Sunday).\n".format(SetCommands.WORK_DAYS.value)
         commandHelp += "\t\tExample: `{} {} 0,1,2,3,4`   - This would set your work days as Monday-Friday\n".format(UserCommands.SET.value, SetCommands.WORK_DAYS.value)
-        commandHelp += "**{}** - This sets your work hours.  Use comma separated numbers in military time\n".format(SetCommands.WORK_HOURS.value)
-        commandHelp += "\t\tExample: `{} {} 8,17` - This would set your work hours from 8am-5pm\n".format(UserCommands.SET.value, SetCommands.WORK_HOURS.value)
-        commandHelp += "**{}** - This sets your work hours.  Use comma separated numbers in military time\n".format(SetCommands.SLEEP_HOURS.value)
-        commandHelp += "\t\tExample: `{} {} 22,8` - This would set your sleep time from 10pm-8am\n".format(UserCommands.SET.value, SetCommands.SLEEP_HOURS.value)
+        commandHelp += "**{}** - This sets your work hours.  Use comma separated numbers in military time. __**UTC Timezone - The API won't give me yours.**__\n".format(SetCommands.WORK_HOURS.value)
+        commandHelp += "\t\tExample: `{} {} 8,17` - This would set your work hours from 8am-5pm (13,22 for CT Timezone)\n".format(UserCommands.SET.value, SetCommands.WORK_HOURS.value)
+        commandHelp += "**{}** - This sets your sleep hours.  Use comma separated numbers in military time. __**UTC Timezone - The API won't give me yours.**__\n".format(SetCommands.SLEEP_HOURS.value)
+        commandHelp += "\t\tExample: `{} {} 22,8` - This would set your sleep time from 10pm-8am  (3,13 for CT Timezone)\n".format(UserCommands.SET.value, SetCommands.SLEEP_HOURS.value)
         
         commandHelp += "__**Here's a full Example**__: `{} {} 0,1,2,3,4 {} 8,17 {} 22,8`\n".format(UserCommands.SET.value, SetCommands.WORK_DAYS.value, SetCommands.WORK_HOURS.value, SetCommands.SLEEP_HOURS.value)
         return commandHelp
@@ -77,20 +77,29 @@ class UserAutoResponse:
         return '@{}'.format(self.name)
 
     def isCurrentDayAWeekday(self):
-        now = datetime.now()
+        now = datetime.utcnow()
         return now.weekday() in self.workDays
 
     def isTimeDuringWorkHours(self):
         if not len(self.workHours):
             return False
-        now = datetime.now()
-        return now.hour >= self.workHours[0] and now.hour <= self.workHours[1]
+        return self.isCurrentTimeWithinRange(self.workHours)
 
     def isTimeDuringSleepingHours(self):
         if not len(self.sleepHours):
             return False
-        now = datetime.now()
-        return now.hour <= self.sleepHours[0] or now.hour >= self.sleepHours[1]
+        return self.isCurrentTimeWithinRange(self.workHours)
+
+    def isCurrentTimeWithinRange(self, hours):
+        now = datetime.utcnow()
+        if hours[0] < hours[1]:
+            #8am-5pm - hour >=8 and hour < 5
+            return now.hour >= hours[0] and now.hour < hours[1] 
+        #10pm-5am - hour >=10 or hour < 5    
+        return now.hour >= hours[0] or now.hour < hours[1]
+
+    def isUserAway(self):
+        return self.getAwayReason()
 
     def getAwayReason(self):
         if self.customReason:
@@ -111,12 +120,11 @@ class UserAutoResponse:
         if not len(self.workHours):
             output += 'Work hours: **Not Set**\n'
         else:
-            output += 'Work hours: **{}** to **{}**\n'.format(self.workHours[0], self.workHours[1])
-        
+            output += 'Work hours: {}'.format(Utilities.getHourTupleToDisplayStringInUTCAndCT(self.workHours))
         if not len(self.sleepHours):
             output += 'Sleep hours: **Not Set**\n'
         else:
-            output += 'Sleep hours: **{}** to **{}**\n'.format(self.sleepHours[0], self.sleepHours[1])
+            output += 'Sleep hours: {}'.format(Utilities.getHourTupleToDisplayStringInUTCAndCT(self.sleepHours))
         return output
 
 class Utilities:
@@ -127,14 +135,14 @@ class Utilities:
         file.close()
         return token
     @staticmethod
-    def isAnInt(string: str):
+    def isAnInt(string: str) -> bool:
         try: 
             int(string)
             return True
         except ValueError:
             return False
     @staticmethod
-    def getListOfIntsFromCsv(string: str):
+    def getListOfIntsFromCsv(string: str) -> list:
         stringSplit = string.split(',')
         listOfInts = []
         for string in stringSplit:
@@ -143,7 +151,7 @@ class Utilities:
                 listOfInts.append(int(string))
         return listOfInts
     @staticmethod
-    def getValidWeekDaysFromCsv(string: str):
+    def getValidWeekDaysFromCsv(string: str) -> list:
         listOfInts = Utilities.getListOfIntsFromCsv(string)
         listOfDays = []
         for i in listOfInts:
@@ -151,20 +159,45 @@ class Utilities:
                 listOfDays.append(i)
         return listOfDays
     @staticmethod
-    def getValidHoursFromCsv(string: str):
+    def getValidHoursFromCsv(string: str) -> list:
         listOfInts = Utilities.getListOfIntsFromCsv(string)
         listOfHours = []
         for i in listOfInts:
             if i >= 0 and i < 24:
                 listOfHours.append(i)
         return listOfHours
+    @staticmethod
+    def convertUTCtoCT(hour: int) -> int:
+        utcToCTOffset = 5 #todo: do we care about DST?
+        #3am UTC becomes 10PM (22) CT - 3, 2, 1, 0, 23, 22
+        if hour - utcToCTOffset < 0:
+            remainder = hour - utcToCTOffset
+            return 24 - remainder
+        return hour - utcToCTOffset
+    @staticmethod
+    def convertMilitaryToStandard(hour: int) -> str: 
+        if hour > 12:
+            hour = hour - 12
+            return str(hour) + " p.m."
+        return str(hour) + " a.m."
+    @staticmethod
+    def getHourTupleToDisplayStringInUTCAndCT(hours: tuple) -> str:
+        fromHour = 0
+        toHour = 1
+        utcMilitary = "{} to {}".format(hours[fromHour], hours[toHour])
+        standardTimeUTC = "**{}** to **{}**".format(Utilities.convertMilitaryToStandard(hours[fromHour]),Utilities.convertMilitaryToStandard(hours[toHour]))
+        miliaryTimeCT = "{} to {}".format(Utilities.convertUTCtoCT(hours[fromHour]), Utilities.convertUTCtoCT(hours[toHour]))
+        standardTimeCT = "**{}** to **{}**".format(Utilities.convertMilitaryToStandard(Utilities.convertUTCtoCT(hours[fromHour])), Utilities.convertMilitaryToStandard(Utilities.convertUTCtoCT(hours[toHour])))
+
+        return '{} ({}) UTC.\t\tIn Central Time: {} ({}).\n'.format(utcMilitary, standardTimeUTC, miliaryTimeCT, standardTimeCT)
+
 
 class ChannelManager:
     userAutoResponses = []
     scholarAutoResponse = UserAutoResponse('Scholar', '1148')
     scholarAutoResponse.workDays = [0,1,2,3,4]
-    scholarAutoResponse.workHours = (8,17)
-    scholarAutoResponse.sleepHours = (11,8)
+    scholarAutoResponse.workHours = (13,22)
+    scholarAutoResponse.sleepHours = (3,13)
     userAutoResponses.append(scholarAutoResponse)
 
     def findSingleUserByAuthor(self, author):
@@ -227,25 +260,35 @@ class ChannelManager:
             if SetCommands.CUSTOM_REASON == setCommandAndValue[0]:
                 user.customReason = setCommandAndValue[1]
                 if user.customReason:
-                    commandsExecuted += "Set `{}` to **{}**.\n".format(setCommandAndValue[0].value, user.customReason)
+                    commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
                 else:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
             if SetCommands.WORK_DAYS == setCommandAndValue[0]:
                 workDays = Utilities.getValidWeekDaysFromCsv(setCommandAndValue[1])
                 user.workDays = workDays
                 if user.workDays.count:
-                    commandsExecuted += "Set `{}` to **{}**.\n".format(setCommandAndValue[0].value, user.workDays)
+                    commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
                 else:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
             if SetCommands.WORK_HOURS == setCommandAndValue[0]:
-                workHours = self.getWorkHoursFromCommandValue(setCommandAndValue[1])
+                workHours = self.getBeforeAndAfterHoursFromCommandValue(setCommandAndValue[1])
                 if not len(workHours):
                     user.workHours = tuple()
-                    commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
+                    commandsExecuted += "Removed `{}`.Perhaps this was on accident? Double check your syntax.  2 ints - 0-23.\n".format(setCommandAndValue[0].value)
                 else:
                     user.workHours = workHours
-                    commandsExecuted += "Set `{}` to **{}-{}**.\n".format(setCommandAndValue[0].value, user.workHours[0], user.workHours[1])
-        await message.channel.send("Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted))
+                    commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
+            if SetCommands.SLEEP_HOURS == setCommandAndValue[0]:
+                sleepHours = self.getBeforeAndAfterHoursFromCommandValue(setCommandAndValue[1])
+                if not len(sleepHours):
+                    user.sleepHours = tuple()
+                    commandsExecuted += "Removed `{}`. Perhaps this was on accident? Double check your syntax.  2 ints - 0-23.\n".format(setCommandAndValue[0].value)
+                else:
+                    user.sleepHours = sleepHours
+                    commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
+            commandsExecuted += "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
+            commandsExecuted += 'User status: \n{}'.format(user.toString())
+        await message.channel.send()
 
     def getSetCommandArgument(self, commandString: str):
         setCommandFound = False
@@ -260,23 +303,11 @@ class ChannelManager:
         commandValue = commandString.replace(setCommand.value.replace('-','') , '').replace(' ', '')
         return (setCommand, commandValue)
 
-    def getWorkHoursFromCommandValue(self, commandValue: str):
+    def getBeforeAndAfterHoursFromCommandValue(self, commandValue: str):
         listOfHours = Utilities.getValidHoursFromCsv(commandValue)
         if len(listOfHours) != 2:
             return []
-        if listOfHours[0] >= listOfHours[1]:
-            return []
         return listOfHours
-
-    def getSleepHoursFromCommandValue(self, commandValue: str):
-        listOfHours = Utilities.getValidHoursFromCsv(commandValue)
-        if len(listOfHours) != 2:
-            return []
-        if listOfHours[0] <= listOfHours[1]:
-            return []
-        return listOfHours
-
-    
 
 
 
@@ -296,11 +327,10 @@ class ChannelManager:
     async def handleUsersBeingTagged(self, message: discord.Message):
         for userAutoResponse in self.userAutoResponses:
             if userAutoResponse.getNameTag() in message.clean_content:
-                reason = userAutoResponse.getAwayReason()
-                if reason:                    
+                if userAutoResponse.isUserAway():
                     responseMessage = 'Hi {} :slight_smile:.\n'.format(message.author.display_name)
                     responseMessage += '{} is currently unavailable.\n'.format(userAutoResponse.name)
-                    responseMessage += 'Reason: **{}**.'.format(reason)
+                    responseMessage += 'Reason: **{}**.'.format(userAutoResponse.getAwayReason())
                     await message.channel.send(responseMessage)
 
     async def handleMessage(self, message: discord.Message):
