@@ -268,15 +268,15 @@ class ChannelManager:
             return True
         if content.startswith(UserCommands.USER_STATUS.value):
             if user:
-                await message.channel.send("Here's your status: \n{}".format(user.toString()))
+                await message.author.send("Here's your status: \n{}".format(user.toString()))
                 return True
-            await message.channel.send('User not found: \n{}'.format(message.author.display_name))
+            await message.author.send('User not found: \n{}'.format(message.author.display_name))
         if content.startswith(UserCommands.REMOVE_USER.value):
             if user:
                 self.userAutoResponses.remove(user)
-                await message.channel.send('User removed: \n{}'.format(user.name))
+                await message.author.send('User removed: \n{}'.format(user.name))
                 return True
-            await message.channel.send('User not found: \n{}'.format(message.author.display_name))  
+            await message.author.send('User not found: \n{}'.format(message.author.display_name))  
             return True
         return
 
@@ -288,13 +288,7 @@ class ChannelManager:
             user = UserAutoResponse(message.author.display_name, message.author.discriminator)
             commandsExecuted += "Created user auto response for user: {}\n".format(user.name)
             self.userAutoResponses.append(user)
-        commandWithSetRemovedAndLowered = message.content.replace(UserCommands.SET.value, '').lower()
-        commandsSplit = commandWithSetRemovedAndLowered.split('-')
-        setCommandsAndValues = []
-        for command in commandsSplit:
-            setCommandAndValue = self.getSetCommandArgument(command)
-            if len(setCommandAndValue):
-                setCommandsAndValues.append(setCommandAndValue)
+        setCommandsAndValues = self.getAllSetCommandsAndArgumentsFromMessage(message)
         if not len(setCommandsAndValues):
             commandsReminder = "I found no valid arguments for your `set` command.  Here's a reminder of the syntax.\n"
             commandsReminder += SetCommands.toString()
@@ -331,19 +325,33 @@ class ChannelManager:
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
         commandsExecutedOutput = "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
         commandsExecutedOutput += "Here's your status: \n{}".format(user.toString())
-        await message.channel.send(commandsExecutedOutput)
+        await message.author.send(commandsExecutedOutput)
+
+    def getAllSetCommandsAndArgumentsFromMessage(self, message: discord.Message):
+        commandWithSetRemoved = message.content.replace(UserCommands.SET.value, '')
+        commandsSplit = commandWithSetRemoved.split('-')
+        setCommandsAndValues = []
+        for command in commandsSplit:
+            setCommandAndValue = self.getSetCommandArgument(command)
+            if len(setCommandAndValue):
+                setCommandsAndValues.append(setCommandAndValue)
+        return setCommandsAndValues
 
     def getSetCommandArgument(self, commandString: str):
         setCommandFound = False
         setCommand :SetCommands
-        commandString = commandString.lower()
+        commandStringLowered = commandString.lower()
         for sC in SetCommands:
-            if sC.value.replace('-','') in commandString:
+            if sC.value.replace('-','') in commandStringLowered:
                 setCommand = sC
                 setCommandFound = True
         if not setCommandFound:
             return tuple()
-        commandValue = commandString.replace(setCommand.value.replace('-','') , '').replace(' ', '')
+        commandValue = commandString.replace(setCommand.value.replace('-','') , '')
+        if setCommand == SetCommands.CUSTOM_REASON:
+            commandValue = commandValue.lstrip(' ').rstrip(' ')
+        else:
+            commandValue = commandValue.replace(' ', '')
         return (setCommand, commandValue)
 
     def getBeforeAndAfterHoursFromCommandValue(self, commandValue: str):
@@ -365,7 +373,7 @@ class ChannelManager:
             commandMessageOutput += AdminCommands.toString()
 
         commandMessageOutput += UserCommands.toString()
-        await message.channel.send(commandMessageOutput)
+        await message.author.send(commandMessageOutput)
 
     async def handleUsersBeingTagged(self, message: discord.Message):
         for userAutoResponse in self.userAutoResponses:
