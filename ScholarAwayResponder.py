@@ -1,4 +1,10 @@
 import discord
+import boto3
+from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.types import TypeSerializer
+from boto3.dynamodb.types import TypeDeserializer
+from marshmallow_dataclass import dataclass as marshmallow_dataclass
+import json
 
 #globals
 from datetime import datetime
@@ -50,27 +56,24 @@ class UserType(Enum):
     NORMAL_USER = 0
     ADMIN_USER = 1
 
-class UserAutoResponse:
+@marshmallow_dataclass
+class User:
+    userId: int
     name: str
-    discriminator: str
+    userType: int
     customReason: str
-    workDays: [0,1,2,3,4]
-    workHours: tuple
-    sleepHours: tuple
-    userType: UserType
+    workDays: list
+    workHours: list
+    sleepHours: list
 
-    def __init__(self, name, discriminator):
+    def __init__(self, userId, name, userType = 0, customReason='', workDays = [], workHours = [], sleepHours = []):
+        self.userId = userId
         self.name = name
-        self.discriminator = discriminator
-        self.customReason = ''
-        self.setWorkDays([])
-        self.workHours = tuple()
-        self.sleepHours = tuple()
-
-        if name == 'Scholar' and discriminator == '1148':
-            self.userType = UserType.ADMIN_USER
-        else:
-            self.userType = UserType.NORMAL_USER
+        self.userType = userType
+        self.customReason = customReason
+        self.setWorkDays([int(x) for x in workDays]) #dynamo db serializes these 3 as Decimal so need to convert to int
+        self.workHours = [int(x) for x in workHours]
+        self.sleepHours = [int(x) for x in sleepHours]
         return
     
     def getNameTag(self):
@@ -102,6 +105,11 @@ class UserAutoResponse:
         distinctDays = list(dict.fromkeys(workDays))
         self.workDays = distinctDays
 
+    def setWorkHours(self, workHours: list):
+        self.workHours = workHours
+
+    def setSleepHours(self, sleepHours: list):
+        self.sleepHours = sleepHours
 
     def isUserAway(self):
         return self.getAwayReason()
@@ -235,28 +243,28 @@ class Utilities:
 
 
 class ChannelManager:
-    userAutoResponses = []
-    scholarAutoResponse = UserAutoResponse('Scholar', '1148')
-    scholarAutoResponse.setWorkDays([0,1,2,3,4])
-    scholarAutoResponse.workHours = (13,22)
-    scholarAutoResponse.sleepHours = (3,13)
-    userAutoResponses.append(scholarAutoResponse)
+    users = []
+    userRepository: any
+    
+    def __init__(self):
+        self.userRepository = UserRepository()
+        self.users = self.userRepository.getAll()
 
     def findSingleUserByAuthor(self, author):
-        for userAutoResponse in self.userAutoResponses:
-            if userAutoResponse.name in author.display_name and userAutoResponse.discriminator == author.discriminator:
-                return userAutoResponse
+        for user in self.users:
+            if user.userId == author.id:
+                return user
 
     async def handleAdminCommandsIfFound(self, message: discord.Message):
         content = message.content.lower()
         if content.startswith(AdminCommands.LIST_USERS.value):
             user = self.findSingleUserByAuthor(message.author)
-            if not user or user.userType != UserType.ADMIN_USER:
+            if not user or user.userType != UserType.ADMIN_USER.value:
                 await message.channel.send('Nice try {}.'.format(message.author.display_name))
                 return True
-            await message.channel.send('There are **{}** users configured.'.format(len(self.userAutoResponses)))
-            for userAutoResponse in self.userAutoResponses:
-                await message.channel.send('__User information__: \n{}'.format(userAutoResponse.toString()))
+            await message.channel.send('There are **{}** users configured.'.format(len(self.users)))
+            for user in self.users:
+                await message.channel.send('__User information__: \n{}'.format(user.toString()))
             return True
         return
 
@@ -273,7 +281,8 @@ class ChannelManager:
             await message.author.send('User not found: \n{}'.format(message.author.display_name))
         if content.startswith(UserCommands.REMOVE_USER.value):
             if user:
-                self.userAutoResponses.remove(user)
+                self.userRepository.delete(user)
+                self.users.remove(user)
                 await message.author.send('User removed: \n{}'.format(user.name))
                 return True
             await message.author.send('User not found: \n{}'.format(message.author.display_name))  
@@ -285,9 +294,9 @@ class ChannelManager:
         user = self.findSingleUserByAuthor(message.author)
         commandsExecuted = ''
         if not user:
-            user = UserAutoResponse(message.author.display_name, message.author.discriminator)
+            user = User(message.author.id, message.author.display_name)
             commandsExecuted += "Created user auto response for user: {}\n".format(user.name)
-            self.userAutoResponses.append(user)
+            self.users.append(user)
         setCommandsAndValues = self.getAllSetCommandsAndArgumentsFromMessage(message)
         if not len(setCommandsAndValues):
             commandsReminder = "I found no valid arguments for your `set` command.  Here's a reminder of the syntax.\n"
@@ -309,23 +318,22 @@ class ChannelManager:
                     commandsExecuted += "Removed `{}`.\n".format(setCommandAndValue[0].value)
             if SetCommands.WORK_HOURS == setCommandAndValue[0]:
                 workHours = self.getBeforeAndAfterHoursFromCommandValue(setCommandAndValue[1])
+                user.setWorkHours(workHours)
                 if not len(workHours):
-                    user.workHours = tuple()
                     commandsExecuted += "Removed `{}`. {}\n".format(setCommandAndValue[0].value, hoursRemovedHelp)
                 else:
-                    user.workHours = workHours
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
             if SetCommands.SLEEP_HOURS == setCommandAndValue[0]:
                 sleepHours = self.getBeforeAndAfterHoursFromCommandValue(setCommandAndValue[1])
+                user.setSleepHours(sleepHours)
                 if not len(sleepHours):
-                    user.sleepHours = tuple()
                     commandsExecuted += "Removed `{}`. {}\n".format(setCommandAndValue[0].value, hoursRemovedHelp)
                 else:
-                    user.sleepHours = sleepHours
                     commandsExecuted += "Set `{}`.\n".format(setCommandAndValue[0].value)
         commandsExecutedOutput = "Commands run for user: *{}*.\n{}".format(user.name, commandsExecuted)
         commandsExecutedOutput += "Here's your status: \n{}".format(user.toString())
         await message.author.send(commandsExecutedOutput)
+        self.userRepository.save(user)
 
     def getAllSetCommandsAndArgumentsFromMessage(self, message: discord.Message):
         commandWithSetRemoved = message.content.replace(UserCommands.SET.value, '')
@@ -367,7 +375,6 @@ class ChannelManager:
         commandMessageOutput = 'The ***Scholar Away Responder*** bot is intended to automatically reply to you being tagged if you know you cannot be available during a time period.\n'
         commandMessageOutput += 'Most people are not available while asleep.  Some people need temporary absenses.  Others are very focused at work and unable to respond.\n'
         commandMessageOutput += 'This bot helps for any one of these you may need to set.\n'
-        commandMessageOutput += 'Because this was just a fun way to learn bots and python, there is no database.  Therefore, if the __***bot shuts down all settings with user information will be lost***__.\n\n'
         commandMessageOutput += '__**Commands available**:__\n'
         if user and user.userType == UserType.ADMIN_USER.value:
             commandMessageOutput += AdminCommands.toString()
@@ -376,12 +383,12 @@ class ChannelManager:
         await message.author.send(commandMessageOutput)
 
     async def handleUsersBeingTagged(self, message: discord.Message):
-        for userAutoResponse in self.userAutoResponses:
-            if userAutoResponse.getNameTag() in message.clean_content:
-                if userAutoResponse.isUserAway():
+        for user in self.users:
+            if user.getNameTag() in message.clean_content:
+                if user.isUserAway():
                     responseMessage = 'Hi {} :slight_smile:.\n'.format(message.author.display_name)
-                    responseMessage += '{} is currently unavailable.\n'.format(userAutoResponse.name)
-                    responseMessage += 'Reason: {}'.format(userAutoResponse.getAwayReason())
+                    responseMessage += '{} is currently unavailable.\n'.format(user.name)
+                    responseMessage += 'Reason: {}'.format(user.getAwayReason())
                     await message.channel.send(responseMessage)
 
     async def handleMessage(self, message: discord.Message):
@@ -395,8 +402,35 @@ class ChannelManager:
             None
 
 
+class UserRepository:
+    serializer = TypeSerializer()
+    deserializer = TypeDeserializer()
+    usersTable: any
 
+    def __init__(self):
+        dynamodb = boto3.resource('dynamodb')
+        self.usersTable = dynamodb.Table('Users')
 
+    def getAll(self):
+        users = []
+        response = self.usersTable.scan()
+        for item in response['Items']:
+            dictionary = {k: self.deserializer.deserialize(v) for k, v in item.items() if k != 'userId'}
+            dictionary["userId"] = int(item["userId"])
+            if not 'customReason' in dictionary:
+                dictionary['customReason'] = ''
+            user = User.Schema().load(dictionary)
+            users.append(user)
+        return users
+
+    def save(self, user: User):
+        json = {k: self.serializer.serialize(v) for k, v in User.Schema().dump(user).items() if v != ""}
+        json['userId'] = user.userId
+        self.usersTable.put_item(Item= json)
+        return
+
+    def delete(self, user: User):
+        self.usersTable.delete_item(Key = {'userId': user.userId})
 
 print('Booting up')
 
@@ -414,5 +448,5 @@ async def on_message(message):
     if message.author == client.user:
         return
     await channelManager.handleMessage(message)
-
+    
 client.run(Utilities.getToken())
