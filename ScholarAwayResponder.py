@@ -27,7 +27,7 @@ class UserCommands(Enum):
     def toString():
         commandHelp = "User Commands:\n"
         commandHelp += "`{}` - returns your away status information\n".format(UserCommands.USER_STATUS.value)
-        commandHelp += "`{}` - removes your information\n".format(UserCommands.REMOVE_USER.value)
+        commandHelp += "`{}` - deletes your account\n".format(UserCommands.REMOVE_USER.value)
         commandHelp += "`{}` - starts setting user away response information\n".format(UserCommands.SET.value)
         commandHelp += "{}\n".format(SetCommands.toString())
         return commandHelp
@@ -43,13 +43,14 @@ class SetCommands(Enum):
         commandHelp += "**{}** - Sets a custom reason.  This bypasses work and sleep hours and simply tells people why you are away.\n".format(SetCommands.CUSTOM_REASON.value)
         commandHelp += "\t\tExample: `{} {} I'll be in the hospital`\n".format(UserCommands.SET.value, SetCommands.CUSTOM_REASON.value)
         commandHelp += "**{}** - This sets the days you work.  Use comma separated numbers from 0-6 (0-Monday, 1-Tuesday, 2-Wednesday, 3-Thursday, 4-Friday, 5-Saturday, 6-Sunday).\n".format(SetCommands.WORK_DAYS.value)
-        commandHelp += "\t\tExample: `{} {} 0,1,2,3,4`   - This would set your work days as Monday-Friday\n".format(UserCommands.SET.value, SetCommands.WORK_DAYS.value)
+        commandHelp += "\t\tExample: `{} {} 0,1,2,3,4`   - This would set your work days as Monday-Friday.  Leave it blank to remove them.\n".format(UserCommands.SET.value, SetCommands.WORK_DAYS.value)
         commandHelp += "**{}** - This sets your work hours.  Use comma separated numbers in military time. __**UTC Timezone - The API won't give me yours.**__\n".format(SetCommands.WORK_HOURS.value)
-        commandHelp += "\t\tExample: `{} {} 8,17` - This would set your work hours from 8am-5pm (13,22 for CT Timezone)\n".format(UserCommands.SET.value, SetCommands.WORK_HOURS.value)
-        commandHelp += "**{}** - This sets your sleep hours.  Use comma separated numbers in military time. __**UTC Timezone - The API won't give me yours.**__\n".format(SetCommands.SLEEP_HOURS.value)
+        commandHelp += "\t\tExample: `{} {} 8,17` - This would set your work hours from 8am-5pm (13,22 for CT Timezone).  Leave it blank to remove them.\n".format(UserCommands.SET.value, SetCommands.WORK_HOURS.value)
+        commandHelp += "**{}** - This sets your sleep hours.  Use comma separated numbers in military time. __**UTC Timezone - The API won't give me yours.**. Leave it blank to remove them.__\n".format(SetCommands.SLEEP_HOURS.value)
         commandHelp += "\t\tExample: `{} {} 22,8` - This would set your sleep time from 10pm-8am  (3,13 for CT Timezone)\n".format(UserCommands.SET.value, SetCommands.SLEEP_HOURS.value)
         
         commandHelp += "__**Here's a full Example**__: `{} {} 0,1,2,3,4 {} 8,17 {} 22,8`\n".format(UserCommands.SET.value, SetCommands.WORK_DAYS.value, SetCommands.WORK_HOURS.value, SetCommands.SLEEP_HOURS.value)
+        commandHelp += "__**If you run this command, it would empty out everything**__: `{} {} {} {}`\n".format(UserCommands.SET.value, SetCommands.WORK_DAYS.value, SetCommands.WORK_HOURS.value, SetCommands.SLEEP_HOURS.value)
         return commandHelp
 
 class UserType(Enum):
