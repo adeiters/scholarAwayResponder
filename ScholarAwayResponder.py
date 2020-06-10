@@ -22,7 +22,7 @@ class AdminCommands(Enum):
 class UserCommands(Enum):
     SET = '/sar set'
     USER_STATUS = '/sar status'
-    REMOVE_USER = '/sar reset'
+    REMOVE_USER = '/sar delete'
     @staticmethod
     def toString():
         commandHelp = "User Commands:\n"
