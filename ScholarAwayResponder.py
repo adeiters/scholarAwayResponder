@@ -12,6 +12,7 @@ from enum import Enum
 
 class AdminCommands(Enum):
     LIST_USERS = '/sar list'
+    RELOAD_USERS = '/sar reload'
     @staticmethod
     def toString():
         commandHelp = "Admin Commands:\n"
@@ -266,6 +267,13 @@ class ChannelManager:
             await message.channel.send('There are **{}** users configured.'.format(len(self.users)))
             for user in self.users:
                 await message.channel.send('__User information__: \n{}'.format(user.toString()))
+            return True
+        if content.startswith(AdminCommands.RELOAD_USERS.value):
+            user = self.findSingleUserByAuthor(message.author)
+            if not user or user.userType != UserType.ADMIN_USER.value:
+                await message.channel.send('Nice try {}.'.format(message.author.display_name))
+                return True
+            self.users = self.userRepository.getAll()
             return True
         return
 
